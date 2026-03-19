@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Princia's Testing Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2d3148;
+      --accent: #6c63ff;
+      --accent-hover: #5a52d5;
+      --accent-glow: rgba(108,99,255,0.25);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 80px;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .header .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .header .logo svg { width: 42px; height: 42px; }
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #6c63ff 0%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 6px;
+    }
+
+    /* ── Card ────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      width: 100%;
+      max-width: 680px;
+    }
+
+    /* ── URL Input ──────────────────────────────────────── */
+    .field-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .url-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .url-wrap .url-icon {
+      position: absolute;
+      left: 14px;
+      color: var(--muted);
+      pointer-events: none;
+    }
+    #urlInput {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px 12px 40px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    #urlInput::placeholder { color: var(--muted); }
+    #urlInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    /* ── Divider ────────────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 28px 0;
+    }
+
+    /* ── Checkboxes ─────────────────────────────────────── */
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .checks-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .check-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 16px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .check-card:hover { border-color: var(--accent); background: rgba(108,99,255,0.05); }
+    .check-card.selected {
+      border-color: var(--accent);
+      background: rgba(108,99,255,0.1);
+    }
+    .check-card input[type="checkbox"] { display: none; }
+    .check-box {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-radius: 5px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s, border-color .2s;
+    }
+    .check-card.selected .check-box {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .check-box svg { display: none; }
+    .check-card.selected .check-box svg { display: block; }
+    .check-info { flex: 1; }
+    .check-info strong { display: block; font-size: 0.9rem; margin-bottom: 3px; }
+    .check-info span { font-size: 0.78rem; color: var(--muted); line-height: 1.4; }
+
+    /* ── Badge – always-on ──────────────────────────────── */
+    .always-on {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(34,197,94,0.08);
+      border: 1px solid rgba(34,197,94,0.25);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 0.83rem;
+      color: #86efac;
+    }
+    .always-on svg { flex-shrink: 0; }
+
+    /* ── Execute Button ─────────────────────────────────── */
+    #executeBtn {
+      width: 100%;
+      margin-top: 28px;
+      padding: 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, transform .1s, box-shadow .2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    #executeBtn:hover:not(:disabled) {
+      background: var(--accent-hover);
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+    #executeBtn:active:not(:disabled) { transform: scale(0.98); }
+    #executeBtn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* ── Progress / Status ──────────────────────────────── */
+    #statusBox {
+      margin-top: 24px;
+      display: none;
+    }
+    .progress-bar-wrap {
+      background: var(--bg);
+      border-radius: 999px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #6c63ff, #a78bfa);
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+    .step-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+    }
+    .step-icon {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .step-icon.pending { background: var(--border); color: var(--muted); }
+    .step-icon.active {
+      background: var(--accent);
+      animation: pulse 1s infinite;
+    }
+    .step-icon.done { background: var(--success); }
+    .step-icon.error { background: var(--danger); }
+    .step-text { color: var(--muted); }
+    .step-text.active { color: var(--text); font-weight: 500; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+    /* ── Result Card ─────────────────────────────────────── */
+    #resultBox { margin-top: 24px; display: none; }
+    .result-card {
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .result-card.success {
+      background: rgba(34,197,94,0.08);
+      border: 1px solid rgba(34,197,94,0.3);
+    }
+    .result-card.error {
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .result-icon { font-size: 2rem; flex-shrink: 0; }
+    .result-content { flex: 1; }
+    .result-content h3 { font-size: 1rem; margin-bottom: 4px; }
+    .result-content p { font-size: 0.82rem; color: var(--muted); }
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 9px 18px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .2s;
+    }
+    .download-btn:hover { background: var(--accent-hover); }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    footer {
+      margin-top: 40px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-align: center;
+    }
+
+    @media (max-width: 480px) {
+      .checks-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <svg viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="21" cy="21" r="21" fill="#6c63ff" fill-opacity="0.15"/>
+        <path d="M12 21L18 27L30 15" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="21" cy="21" r="10" stroke="#6c63ff" stroke-width="1.5" stroke-dasharray="3 2"/>
+      </svg>
+      <h1>Web Automation testing tool</h1>
+    </div>
+    <p>Developed by Princia for Security scanning &amp; automated UI testing for any public website</p>
+  </header>
+
+  <!-- Main Card -->
+  <div class="card">
+
+    <!-- URL Input -->
+    <label class="field-label" for="urlInput">Target URL</label>
+    <div class="url-wrap">
+      <svg class="url-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <input type="url" id="urlInput" placeholder="https://example.com" autocomplete="off" />
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Always-on badge -->
+    <div class="always-on">
+      <svg width="16" height="16" fill="none" stroke="#22c55e" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      <span><strong>Security Scan</strong> always runs — checks headers, TLS, cookies &amp; more</span>
+    </div>
+
+    <!-- Checkboxes -->
+    <div class="section-title">Additional Options</div>
+    <div class="checks-grid">
+
+      <label class="check-card" id="card-report" onclick="toggleCheck('uiTestReport','card-report')">
+        <input type="checkbox" id="uiTestReport" />
+        <div class="check-box">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2">
+            <polyline points="1,6 4.5,9.5 11,2.5"/>
+          </svg>
+        </div>
+        <div class="check-info">
+          <strong>UI Test Report</strong>
+          <span>Analyse components, generate test plan &amp; execute Playwright tests</span>
+        </div>
+      </label>
+
+      <label class="check-card" id="card-script" onclick="toggleCheck('uiTestScript','card-script')">
+        <input type="checkbox" id="uiTestScript" />
+        <div class="check-box">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2">
+            <polyline points="1,6 4.5,9.5 11,2.5"/>
+          </svg>
+        </div>
+        <div class="check-info">
+          <strong>UI Test Script</strong>
+          <span>Embed the generated Playwright script inside the PDF report</span>
+        </div>
+      </label>
+
+    </div>
+    <!--CAPTCHA-->
+
+    <!-- Execute Button -->
+    <button id="executeBtn" onclick="runAnalysis()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      Execute
+    </button>
+
+    <!-- Progress -->
+    <div id="statusBox">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar" style="width:0%"></div>
+      </div>
+      <ul class="step-list" id="stepList"></ul>
+    </div>
+
+    <!-- Result -->
+    <div id="resultBox"></div>
+
+  </div>
+
+  <footer>auto-tester-demo v1.0.0 &nbsp;·&nbsp; Reports are deleted from server after download</footer>
+
+  <script>
+    // ── Checkbox toggle ────────────────────────────────────
+    function toggleCheck(id, cardId) {
+      event.preventDefault();
+      const cb = document.getElementById(id);
+      const card = document.getElementById(cardId);
+      cb.checked = !cb.checked;
+      card.classList.toggle('selected', cb.checked);
+    }
+
+    // ── Step helpers ──────────────────────────────────────
+    const STEPS_SECURITY_ONLY = [
+      { id: 'fetch',    label: 'Fetching page & headers' },
+      { id: 'security', label: 'Running security analysis' },
+      { id: 'pdf',      label: 'Generating PDF report' },
+    ];
+    const STEPS_UI = [
+      { id: 'fetch',    label: 'Fetching page & headers' },
+      { id: 'security', label: 'Running security analysis' },
+      { id: 'analyze',  label: 'Analysing UI components' },
+      { id: 'plan',     label: 'Building test plan' },
+      { id: 'script',   label: 'Generating Playwright script' },
+      { id: 'run',      label: 'Executing UI tests' },
+      { id: 'pdf',      label: 'Generating PDF report' },
+    ];
+
+    let currentSteps = [];
+
+    function renderSteps(steps) {
+      currentSteps = steps;
+      const list = document.getElementById('stepList');
+      list.innerHTML = steps.map((s, i) =>
+        `<li class="step-item" id="step-${s.id}">
+          <div class="step-icon pending" id="icon-${s.id}">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <circle cx="5" cy="5" r="3" fill="currentColor" opacity="0.5"/>
+            </svg>
+          </div>
+          <span class="step-text" id="txt-${s.id}">${s.label}</span>
+        </li>`
+      ).join('');
+    }
+
+    function activateStep(id) {
+      const icon = document.getElementById(`icon-${id}`);
+      const txt  = document.getElementById(`txt-${id}`);
+      if (!icon) return;
+      icon.className = 'step-icon active';
+      icon.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <circle cx="5" cy="5" r="3" fill="#fff"/>
+      </svg>`;
+      txt.className = 'step-text active';
+
+      // Progress bar
+      const idx = currentSteps.findIndex(s => s.id === id);
+      const pct = Math.round(((idx + 0.5) / currentSteps.length) * 100);
+      document.getElementById('progressBar').style.width = pct + '%';
+    }
+
+    function doneStep(id, error = false) {
+      const icon = document.getElementById(`icon-${id}`);
+      const txt  = document.getElementById(`txt-${id}`);
+      if (!icon) return;
+      icon.className = `step-icon ${error ? 'error' : 'done'}`;
+      icon.innerHTML = error
+        ? `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.5"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>`
+        : `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><polyline points="2,5 4,7.5 8,2.5"/></svg>`;
+      txt.className = 'step-text';
+    }
+
+    // ── Main execution ─────────────────────────────────────
+    async function runAnalysis() {
+      const urlInput = document.getElementById('urlInput');
+      const uiTestReport = document.getElementById('uiTestReport').checked;
+      const uiTestScript = document.getElementById('uiTestScript').checked;
+      const url = urlInput.value.trim();
+
+      if (!url) {
+        urlInput.focus();
+        urlInput.style.borderColor = '#ef4444';
+        setTimeout(() => urlInput.style.borderColor = '', 1500);
+        return;
+      }
+
+      const btn = document.getElementById('executeBtn');
+      const statusBox = document.getElementById('statusBox');
+      const resultBox = document.getElementById('resultBox');
+
+      btn.disabled = true;
+      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Running...`;
+
+      statusBox.style.display = 'block';
+      resultBox.style.display = 'none';
+      document.getElementById('progressBar').style.width = '0%';
+
+      const runUI = uiTestReport || uiTestScript;
+      const steps = runUI ? STEPS_UI : STEPS_SECURITY_ONLY;
+      renderSteps(steps);
+
+      // Simulate step activation with a progress listener
+      activateStep('fetch');
+
+      try {
+        // Start periodic step advancement while API works
+        let stepIdx = 0;
+        const stepTimer = setInterval(() => {
+          if (stepIdx < steps.length - 2) {
+            doneStep(steps[stepIdx].id);
+            stepIdx++;
+            activateStep(steps[stepIdx].id);
+          }
+        }, runUI ? 3500 : 2000);
+
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, uiTestReport, uiTestScript }),
+        });
+
+        clearInterval(stepTimer);
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          // mark remaining as error
+          steps.forEach((s, i) => { if (i >= stepIdx) doneStep(s.id, true); });
+          document.getElementById('progressBar').style.width = '100%';
+          document.getElementById('progressBar').style.background = '#ef4444';
+          showError(data.error || 'An unexpected error occurred.');
+        } else {
+          // Finish remaining steps
+          for (let i = stepIdx; i < steps.length; i++) {
+            doneStep(steps[i].id);
+          }
+          document.getElementById('progressBar').style.width = '100%';
+
+          const downloadURL = `/api/download/${data.sessionId}/${data.reportFile}`;
+          showSuccess(url, downloadURL, runUI);
+        }
+      } catch (err) {
+        showError(err.message || 'Network error. Is the server running?');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Execute`;
+      }
+    }
+
+    function showSuccess(url, downloadURL, hadUI) {
+      const resultBox = document.getElementById('resultBox');
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div class="result-card success">
+          <div class="result-icon">✅</div>
+          <div class="result-content">
+            <h3>Analysis Complete</h3>
+            <p>${hadUI ? 'Security scan + UI tests finished' : 'Security scan finished'} for <strong>${escapeHtml(url)}</strong></p>
+            <a class="download-btn" href="${downloadURL}" download>
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Report PDF
+            </a>
+          </div>
+        </div>`;
+    }
+
+    function showError(msg) {
+      const resultBox = document.getElementById('resultBox');
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div class="result-card error">
+          <div class="result-icon">❌</div>
+          <div class="result-content">
+            <h3>Analysis Failed</h3>
+            <p>${escapeHtml(msg)}</p>
+          </div>
+        </div>`;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Spin animation for loading icon
+    const style = document.createElement('style');
+    style.textContent = `.spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }`;
+    document.head.appendChild(style);
+
+    // Allow Enter key to trigger execution
+    document.getElementById('urlInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runAnalysis();
+    });
+  </script>
+</body>
+</html>
