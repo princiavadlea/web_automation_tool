@@ -82,3 +82,9 @@ Downloads the PDF report. **Files are deleted immediately after download.**
 - Node.js 18+
 - npm
 - Playwright Chromium (auto-installs on `npm install`)
+
+## Environment Variables
+
+- `PORT` (optional)
+- `RECAPTCHA_TOKEN` (optional; injected into the browser to prefill `_recaptchaToken`)
+- `RECAPTCHA_SECRET_KEY` (optional; used server-side to verify reCAPTCHA tokens; if blank, the server falls back to Google's v2 test secret)

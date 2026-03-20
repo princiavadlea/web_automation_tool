@@ -1,8 +1,11 @@
 /**
  * reportGenerator.js
  * Generates a professional PDF report using pdfkit.
- * Sections: Cover, Executive Summary, Security Results,
- *           UI Test Plan, Playwright Test Results, Script (optional).
+ * Sections: Cover, Executive Summary,
+ *           2.1 Basic HTML/CSS/JS Analysis,
+ *           2.2 Security Results,
+ *           2.3 UI Test Plan + Playwright Test Results (optional),
+ *           Script (optional).
  */
 
 const PDFDocument = require('pdfkit');
@@ -149,17 +152,18 @@ function addCoverPage(doc, { url, scannedAt, hasUI, includeScript }) {
      .text('Report Contents:', 50, contentsY, { align: 'center' });
 
   const items = [
-    '✓  Security Header Analysis',
-    '✓  TLS / HTTPS Verification',
-    '✓  Cookie Security Assessment',
-    '✓  Information Disclosure Check',
+    '✓  2.1 Basic HTML/CSS/JS Analysis',
+    '✓  2.2 Security Header Analysis',
+    '✓  2.2 TLS / HTTPS Verification',
+    '✓  2.2 Cookie Security Assessment',
+    '✓  2.2 Information Disclosure Check',
   ];
   if (hasUI) {
-    items.push('✓  UI Component Analysis');
-    items.push('✓  Test Plan (Input, Navigation, Spelling)');
-    items.push('✓  Playwright Test Execution Results');
+    items.push('✓  2.3 UI Component Analysis');
+    items.push('✓  2.3 Test Plan (Input, Navigation, Spelling)');
+    items.push('✓  2.3 Playwright Test Execution Results');
   }
-  if (includeScript) items.push('✓  Playwright Test Script Source');
+  if (includeScript) items.push('✓  2.3 Playwright Test Script Source');
 
   items.forEach((item, i) => {
     doc.fontSize(9).fillColor('#CBD5E1')
@@ -175,24 +179,54 @@ function addCoverPage(doc, { url, scannedAt, hasUI, includeScript }) {
 }
 
 // ─── Executive Summary ────────────────────────────────────────────────────────
-function addExecutiveSummary(doc, { securityResults, testResults }) {
+function addExecutiveSummary(doc, { basicResults, securityResults, testResults }) {
   let y = 50;
   y = sectionHeader(doc, 'Executive Summary', null, y);
   y = divider(doc, y);
 
+  // ── 2.1 Basic Analysis summary card ─────────────────────────────────────────
+  const basSum = basicResults ? (basicResults.summary || {}) : {};
+  const basTotal = basicResults ? (basicResults.totalFindings || 0) : 0;
+  const basIssues = (basSum.HIGH || 0) + (basSum.CRITICAL || 0) + (basSum.MEDIUM || 0) + (basSum.LOW || 0);
+
+  doc.save().roundedRect(50, y, 495, 70, 8)
+     .fill(basIssues > 0 ? '#1A1D27' : '#0F2117').restore();
+  doc.save().roundedRect(50, y, 4, 70, 2).fill(basIssues > 0 ? C.warn : C.pass).restore();
+
+  doc.fontSize(11).font('Helvetica-Bold')
+     .fillColor(basIssues > 0 ? C.warn : C.pass)
+     .text('2.1  Basic HTML/CSS/JS Analysis', 62, y + 8);
+  doc.fontSize(9).font('Helvetica').fillColor(C.mutedText)
+     .text(`${basTotal} finding(s) · ${basIssues} issue(s) · response ${basicResults ? basicResults.responseTime : '–'}ms`, 62, y + 26);
+
+  const basCols = [
+    { label: 'CRITICAL', val: basSum.CRITICAL || 0, col: C.critical },
+    { label: 'HIGH',     val: basSum.HIGH     || 0, col: C.high },
+    { label: 'MEDIUM',   val: basSum.MEDIUM   || 0, col: C.medium },
+    { label: 'LOW',      val: basSum.LOW      || 0, col: C.low },
+    { label: 'INFO',     val: basSum.INFO     || 0, col: C.info },
+  ];
+  basCols.forEach((c, i) => {
+    const cx = 62 + i * 86;
+    doc.fontSize(9).font('Helvetica-Bold').fillColor(c.col).text(String(c.val), cx, y + 45);
+    doc.fontSize(7).font('Helvetica').fillColor(C.mutedText).text(c.label, cx, y + 57);
+  });
+
+  y += 88;
+
+  // ── 2.2 Security summary card ────────────────────────────────────────────────
   const secSum = securityResults.summary || {};
   const secTotal = Object.values(secSum).reduce((a, b) => a + b, 0);
   const secPassed = secSum.PASS || 0;
   const secIssues = (secSum.HIGH || 0) + (secSum.CRITICAL || 0) + (secSum.MEDIUM || 0) + (secSum.LOW || 0);
 
-  // Security summary card
   doc.save().roundedRect(50, y, 495, 70, 8)
      .fill(secIssues > 0 ? '#1A1D27' : '#0F2117').restore();
   doc.save().roundedRect(50, y, 4, 70, 2).fill(secIssues > 0 ? C.warn : C.pass).restore();
 
   doc.fontSize(11).font('Helvetica-Bold')
      .fillColor(secIssues > 0 ? C.warn : C.pass)
-     .text('Security Scan', 62, y + 8);
+     .text('2.2  Security Scan', 62, y + 8);
   doc.fontSize(9).font('Helvetica').fillColor(C.mutedText)
      .text(`${secTotal} checks performed · ${secPassed} passed · ${secIssues} issue(s) found`, 62, y + 26);
 
@@ -267,10 +301,71 @@ function addExecutiveSummary(doc, { securityResults, testResults }) {
   doc.addPage();
 }
 
-// ─── Security Results ─────────────────────────────────────────────────────────
+// ─── 2.1 Basic HTML/CSS/JS Analysis Results ───────────────────────────────────
+function addBasicTestResults(doc, basicResults) {
+  let y = 50;
+  y = sectionHeader(doc,
+    '2.1  Basic HTML / CSS / JS Analysis',
+    `URL: ${basicResults.url}  ·  Response: ${basicResults.responseTime}ms  ·  ${basicResults.totalFindings} finding(s)`,
+    y);
+  y = divider(doc, y);
+
+  if (!basicResults.findings || basicResults.findings.length === 0) {
+    doc.fontSize(10).font('Helvetica').fillColor(C.pass)
+       .text('✓  No issues found in basic analysis.', 58, y);
+    doc.addPage();
+    return;
+  }
+
+  // Group by category
+  const groups = {};
+  basicResults.findings.forEach(f => {
+    (groups[f.category] = groups[f.category] || []).push(f);
+  });
+
+  for (const [category, findings] of Object.entries(groups)) {
+    y = checkPage(doc, y, 30 + findings.length * 44);
+
+    // Category header
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(C.darkText)
+       .text(category, 50, y);
+    y += 18;
+
+    findings.forEach(finding => {
+      y = checkPage(doc, y, 44);
+
+      const color = SEV_COLOR[finding.status] || C.mutedText;
+      const bg    = SEV_BG[finding.status]    || '#F8FAFC';
+
+      doc.save().roundedRect(50, y - 2, 495, 38, 4).fill(bg).restore();
+      doc.save().rect(50, y - 2, 3, 38).fill(color).restore();
+
+      badge(doc, finding.status, color, '#FFFFFF', 450, y + 12, 90);
+
+      doc.fontSize(9).font('Helvetica-Bold').fillColor(C.darkText)
+         .text(finding.test, 60, y + 2, { width: 380 });
+
+      doc.fontSize(8).font('Helvetica').fillColor(C.mutedText)
+         .text(finding.detail.substring(0, 110), 60, y + 16, { width: 380 });
+
+      if (finding.recommendation) {
+        doc.fontSize(7).fillColor(color)
+           .text(`▶ ${finding.recommendation.substring(0, 100)}`, 60, y + 27, { width: 380 });
+      }
+
+      y += 46;
+    });
+
+    y += 8;
+  }
+
+  doc.addPage();
+}
+
+// ─── 2.2 Security Results ─────────────────────────────────────────────────────
 function addSecurityResults(doc, securityResults) {
   let y = 50;
-  y = sectionHeader(doc, 'Security Test Results',
+  y = sectionHeader(doc, '2.2  Security Test Results',
     `URL: ${securityResults.url}  ·  Response: ${securityResults.responseTime}ms  ·  HTTP ${securityResults.statusCode || 'N/A'}`, y);
   y = divider(doc, y);
 
@@ -329,7 +424,7 @@ function addSecurityResults(doc, securityResults) {
 // ─── Test Plan ────────────────────────────────────────────────────────────────
 function addTestPlan(doc, testPlan, components) {
   let y = 50;
-  y = sectionHeader(doc, 'Generated Test Plan',
+  y = sectionHeader(doc, '2.3  Generated Test Plan',
     `${testPlan.totalTests} test cases · ${testPlan.highPriority} high-priority`, y);
   y = divider(doc, y);
 
@@ -415,7 +510,7 @@ function addTestResults(doc, testResults) {
   const { results, summary, totalTests, ranAt } = testResults;
   const d = new Date(ranAt);
 
-  y = sectionHeader(doc, 'Playwright Test Execution Results',
+  y = sectionHeader(doc, '2.3  Playwright Test Execution Results',
     `${totalTests} tests executed at ${d.toLocaleTimeString()}  ·  Pass: ${summary.PASS}  Fail: ${summary.FAIL}  Warn: ${summary.WARN}  Skip: ${summary.SKIP}`,
     y);
   y = divider(doc, y);
@@ -548,7 +643,11 @@ function addPlaywrightScript(doc, scriptContent) {
 }
 
 // ─── Main generateReport ──────────────────────────────────────────────────────
-async function generateReport({ url, securityResults, components, testPlan, testResults, playwrightScript, reportPath, includeScript }) {
+async function generateReport({
+  url, basicResults, securityResults,
+  components, testPlan, testResults,
+  playwrightScript, reportPath, includeScript,
+}) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
@@ -578,17 +677,22 @@ async function generateReport({ url, securityResults, components, testPlan, test
     });
 
     // ── Executive Summary ─────────────────────────────────────────────────
-    addExecutiveSummary(doc, { securityResults, testResults });
+    addExecutiveSummary(doc, { basicResults, securityResults, testResults });
 
-    // ── Security Results ──────────────────────────────────────────────────
+    // ── 2.1 Basic HTML/CSS/JS Analysis ───────────────────────────────────
+    if (basicResults) {
+      addBasicTestResults(doc, basicResults);
+    }
+
+    // ── 2.2 Security Results ──────────────────────────────────────────────
     addSecurityResults(doc, securityResults);
 
-    // ── Test Plan (if UI tests were run) ──────────────────────────────────
+    // ── 2.3 Test Plan (if UI tests were run) ──────────────────────────────
     if (testPlan && components) {
       addTestPlan(doc, testPlan, components);
     }
 
-    // ── Test Execution Results ────────────────────────────────────────────
+    // ── 2.3 Test Execution Results ────────────────────────────────────────
     if (testResults && testResults.results) {
       addTestResults(doc, testResults);
     }
