@@ -270,6 +270,33 @@
       background: rgba(239,68,68,0.08);
       border: 1px solid rgba(239,68,68,0.3);
     }
+    .result-card.pending {
+      background: rgba(108,99,255,0.08);
+      border: 1px solid rgba(108,99,255,0.3);
+    }
+    .pending-timer {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .check-now-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 8px 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .check-now-btn:hover { background: var(--accent-hover); }
+    @keyframes gha-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .gha-spin { animation: spin 2s linear infinite; display:inline-block; }
     .result-icon { font-size: 2rem; flex-shrink: 0; }
     .result-content { flex: 1; }
     .result-content h3 { font-size: 1rem; margin-bottom: 4px; }
@@ -374,7 +401,7 @@
     <!-- reCAPTCHA v2 widget -->
     <div class="recaptcha-wrap">
       <div class="g-recaptcha"
-           data-sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
+           data-sitekey="__RECAPTCHA_SITE_KEY__"
            data-callback="onRecaptchaVerified"
            data-expired-callback="onRecaptchaExpired"
            data-theme="dark">
@@ -415,7 +442,18 @@
     }
 
     // ── reCAPTCHA callbacks ────────────────────────────────
-    let _recaptchaToken = __RECAPTCHA_TOKEN__ || null;
+    // __RECAPTCHA_DISABLED__ is replaced server-side with "true" or "false"
+    const _recaptchaDisabled = (__RECAPTCHA_DISABLED__ === true || '__RECAPTCHA_DISABLED__' === 'true');
+    let _recaptchaToken = null;
+
+    // When the server sets RECAPTCHA_DISABLED=true (e.g. shared hosting or CI),
+    // hide the widget and auto-enable the Execute button.
+    if (_recaptchaDisabled) {
+      _recaptchaToken = 'disabled';
+      document.getElementById('executeBtn').disabled = false;
+      const captchaWrap = document.querySelector('.recaptcha-wrap');
+      if (captchaWrap) captchaWrap.style.display = 'none';
+    }
 
     function onRecaptchaVerified(token) {
       _recaptchaToken = token;
@@ -548,28 +586,26 @@
           document.getElementById('progressBar').style.width = '100%';
           document.getElementById('progressBar').style.background = '#ef4444';
           showError(data.error || 'An unexpected error occurred.');
-          // Reset reCAPTCHA so the user can try again
-          if (typeof grecaptcha !== 'undefined') { grecaptcha.reset(); }
-          _recaptchaToken = null;
-          document.getElementById('executeBtn').disabled = true;
+          resetCaptcha();
+        } else if (data.status === 'pending') {
+          // GitHub Actions async path – show pending card and start polling
+          for (let i = stepIdx; i < steps.length - 1; i++) doneStep(steps[i].id);
+          document.getElementById('progressBar').style.width = '85%';
+          showPending(url, data.sessionId, data.message);
+          startPolling(url, data.sessionId);
+          // Keep button disabled; resetCaptcha is called when polling resolves
         } else {
-          // Finish remaining steps
-          for (let i = stepIdx; i < steps.length; i++) {
-            doneStep(steps[i].id);
-          }
+          // Synchronous path – report ready immediately
+          for (let i = stepIdx; i < steps.length; i++) doneStep(steps[i].id);
           document.getElementById('progressBar').style.width = '100%';
-
           const downloadURL = `/api/download/${data.sessionId}/${data.reportFile}`;
           showSuccess(url, downloadURL, runUI);
-          // Reset reCAPTCHA after successful run so user must re-verify for next scan
-          if (typeof grecaptcha !== 'undefined') { grecaptcha.reset(); }
-          _recaptchaToken = null;
-          document.getElementById('executeBtn').disabled = true;
+          resetCaptcha();
         }
       } catch (err) {
         showError(err.message || 'Network error. Is the server running?');
+        resetCaptcha();
       } finally {
-        // Only re-enable the button if reCAPTCHA is still valid
         btn.disabled = (_recaptchaToken === null);
         btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Execute`;
       }
@@ -607,6 +643,87 @@
 
     function escapeHtml(str) {
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── reCAPTCHA reset helper ─────────────────────────────
+    function resetCaptcha() {
+      if (_recaptchaDisabled) return;           // widget is hidden – nothing to reset
+      if (typeof grecaptcha !== 'undefined') { try { grecaptcha.reset(); } catch {} }
+      _recaptchaToken = null;
+      document.getElementById('executeBtn').disabled = true;
+    }
+
+    // ── GitHub Actions pending state ───────────────────────
+    let _pollInterval = null;
+    let _pollElapsed  = 0;
+    let _pollCountdown = 30;
+
+    function showPending(url, sessionId, message) {
+      const resultBox = document.getElementById('resultBox');
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div class="result-card pending">
+          <div class="result-icon"><span class="gha-spin">⚙️</span></div>
+          <div class="result-content">
+            <h3>Playwright Tests Running in GitHub Actions</h3>
+            <p style="font-size:.85rem">${escapeHtml(message || 'Tests queued…')}</p>
+            <p class="pending-timer" id="pendingTimer">Elapsed: 0s · Next check in 30s</p>
+            <button class="check-now-btn" onclick="checkNow('${escapeHtml(url)}','${sessionId}')">
+              🔄 Check Now
+            </button>
+          </div>
+        </div>`;
+    }
+
+    function startPolling(url, sessionId) {
+      stopPolling();
+      _pollElapsed   = 0;
+      _pollCountdown = 30;
+      _pollInterval = setInterval(() => {
+        _pollElapsed++;
+        _pollCountdown--;
+        const timerEl = document.getElementById('pendingTimer');
+        if (timerEl) {
+          const mins = Math.floor(_pollElapsed / 60);
+          const secs = _pollElapsed % 60;
+          const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+          timerEl.textContent = `Elapsed: ${elapsed} · Next check in ${Math.max(0, _pollCountdown)}s`;
+        }
+        if (_pollCountdown <= 0) {
+          _pollCountdown = 30;
+          checkNow(url, sessionId);
+        }
+      }, 1000);
+    }
+
+    function stopPolling() {
+      if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+    }
+
+    async function checkNow(url, sessionId) {
+      try {
+        const resp = await fetch(`/api/status/${sessionId}`);
+        const data = await resp.json();
+
+        if (data.status === 'complete') {
+          stopPolling();
+          document.getElementById('progressBar').style.width = '100%';
+          const downloadURL = `/api/download/${sessionId}/${data.reportFile}`;
+          showSuccess(url, downloadURL, true);
+          resetCaptcha();
+          document.getElementById('executeBtn').disabled = _recaptchaDisabled ? false : true;
+        } else if (data.status === 'error' || data.status === 'timeout') {
+          stopPolling();
+          document.getElementById('progressBar').style.width = '100%';
+          document.getElementById('progressBar').style.background = '#ef4444';
+          showError(data.error || 'GitHub Actions returned an error. Check your Actions logs.');
+          resetCaptcha();
+          document.getElementById('executeBtn').disabled = _recaptchaDisabled ? false : true;
+        }
+        // else: still 'pending' – keep polling
+      } catch (err) {
+        console.error('Status check failed:', err.message);
+      }
     }
 
     // Spin animation for loading icon

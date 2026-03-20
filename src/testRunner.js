@@ -274,15 +274,25 @@ async function testSpelling(page, spellingIssues) {
   return results;
 }
 
+// ─── Structured error helper ──────────────────────────────────────────────────
+function makeErrorResult(id, name, detail) {
+  return {
+    results: [{
+      testId: id, name, category: 'System',
+      status: STATUS.FAIL, detail, duration: 0,
+    }],
+    summary: { PASS: 0, FAIL: 1, WARN: 0, SKIP: 0 },
+    totalTests: 1,
+    ranAt: new Date().toISOString(),
+  };
+}
+
 // ─── Main runner ──────────────────────────────────────────────────────────────
 async function runUITests(url, components, testPlan) {
+  // Package-level check (playwright npm package missing entirely)
   if (!playwright) {
-    return [{
-      testId: 'SYS-01', name: 'Playwright Setup',
-      category: 'System', status: STATUS.FAIL,
-      detail: 'Playwright package not found. Run: npm install playwright && npx playwright install chromium',
-      duration: 0,
-    }];
+    return makeErrorResult('SYS-01', 'Playwright Package Missing',
+      'The playwright npm package is not installed. Run: npm install && npx playwright install chromium');
   }
 
   const allResults = [];
@@ -374,9 +384,23 @@ async function runUITests(url, components, testPlan) {
 
     await context.close();
   } catch (err) {
+    // Detect "Chromium binary not installed" vs generic errors
+    const isMissingBrowser =
+      err.message.includes('Executable') ||
+      err.message.includes('executable') ||
+      err.message.includes('browserType.launch') ||
+      err.message.includes('playwright install');
+
     allResults.push({
       testId: 'SYS-ERR', name: 'Test Runner Error', category: 'System',
-      status: STATUS.FAIL, detail: `Unexpected error: ${err.message}`, duration: 0,
+      status: STATUS.FAIL,
+      detail: isMissingBrowser
+        ? 'Chromium browser binary is not installed. ' +
+          'Run: npx playwright install chromium\n' +
+          'On shared hosting (Hostinger etc.) set PLAYWRIGHT_DISABLED=true in .env ' +
+          'to skip execution while still generating the test plan and script.'
+        : `Unexpected error: ${err.message}`,
+      duration: 0,
     });
   } finally {
     if (browser) await browser.close().catch(() => {});
