@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Playwright Test Runner (Webhook)
+#
+#  Triggered by the Hostinger app via workflow_dispatch when a user clicks
+#  Execute with the UI Test Report checkbox checked.
+#
+#  Flow:
+#    1. Hostinger app runs Step 2.1 (basic) + 2.2 (security) + 2.3a-c (UI
+#       analysis / test plan / script gen) synchronously and returns "pending".
+#    2. Hostinger app calls the GitHub API to dispatch THIS workflow.
+#    3. This workflow installs Chromium, runs Playwright (Step 2.3d), then
+#       POSTs the JSON results back to Hostinger via the webhook URL.
+#    4. Hostinger builds the final PDF and marks the session "complete".
+#    5. The browser (polling /api/status/:sessionId) detects completion
+#       and shows the Download button.
+#
+#  Required GitHub repository secrets:
+#    WEBHOOK_SECRET  → must match WEBHOOK_SECRET in Hostinger .env
+#
+#  Inputs (sent by Hostinger's triggerGitHubActionsPlaywright function):
+#    target_url      → page to test
+#    session_id      → UUID that links this run to the Hostinger session
+#    webhook_url     → full URL of POST /api/webhook/playwright/:sessionId
+#    include_script  → "true" | "false" — embed .spec.js in the PDF?
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Playwright Test Runner (Webhook)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'URL to run Playwright tests against'
+        required: true
+        type: string
+      session_id:
+        description: 'Hostinger session ID (UUID)'
+        required: true
+        type: string
+      webhook_url:
+        description: 'Hostinger webhook endpoint to POST results back to'
+        required: true
+        type: string
+      include_script:
+        description: 'Embed Playwright script in the PDF report'
+        required: false
+        default: 'false'
+        type: string
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  run-playwright:
+    name: Run Playwright UI Tests & Webhook Results
+    runs-on: ubuntu-latest
+    timeout-minutes: 15           # Safety net – clean up if something hangs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Node.js dependencies
+        run: npm ci --prefer-offline
+
+      - name: Install Playwright Chromium browser
+        run: npx playwright install chromium --with-deps
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright
+
+      - name: Run UI tests and POST results to webhook
+        env:
+          TARGET_URL:              ${{ inputs.target_url }}
+          SESSION_ID:              ${{ inputs.session_id }}
+          WEBHOOK_URL:             ${{ inputs.webhook_url }}
+          WEBHOOK_SECRET:          ${{ secrets.WEBHOOK_SECRET }}
+          INCLUDE_SCRIPT:          ${{ inputs.include_script }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright
+          # Silence SSL warnings – the test runner already handles cert errors
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: node scripts/run-playwright-webhook.js
+
+      - name: Print run summary
+        if: always()
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Session  : ${{ inputs.session_id }}"
+          echo "  Target   : ${{ inputs.target_url }}"
+          echo "  Webhook  : ${{ inputs.webhook_url }}"
+          echo "════════════════════════════════════"
