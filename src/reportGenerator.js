@@ -118,12 +118,12 @@ function addCoverPage(doc, { url, scannedAt, hasUI, includeScript }) {
 
   // Title
   doc.fontSize(32).font('Helvetica-Bold').fillColor(C.white)
-     .text('AUTO TESTER', 50, 100, { align: 'center' });
+     .text('Web Automation', 50, 100, { align: 'center' });
   doc.fontSize(32).fillColor(C.accentLight)
-     .text('DEMO', 50, 138, { align: 'center' });
+     .text('Testing Tool', 50, 138, { align: 'center' });
 
   doc.fontSize(11).font('Helvetica').fillColor('#94A3B8')
-     .text('Automated Security & UI Testing Report', 50, 190, { align: 'center' });
+     .text('Automated Security & UI Testing Report - By Princia Vadlea', 50, 190, { align: 'center' });
 
   // URL card
   const cardY = 240;
@@ -606,7 +606,7 @@ function addPlaywrightScript(doc, scriptContent) {
 
     // Syntax highlighting (basic)
     const trimmed = line.trimStart();
-    let color = '#CBD5E1'; // default
+    let color = '#1E293B'; // default
 
     if (trimmed.startsWith('//')) {
       color = '#6B7280';
