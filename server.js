@@ -1,8 +1,9 @@
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
+const express    = require('express');
+const path       = require('path');
+const fs         = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const cors = require('cors');
+const cors       = require('cors');
+const nodemailer = require('nodemailer');
 
 require('dotenv').config();
 
@@ -40,6 +41,241 @@ const WEBHOOK_SECRET             = process.env.WEBHOOK_SECRET || 'change-me-in-p
 
 // True when the app can delegate Playwright execution to GitHub Actions
 const useGitHubActionsForPlaywright = () => !!(GITHUB_TOKEN && GITHUB_REPO);
+
+// ── Gmail notification ─────────────────────────────────────────────────────────
+const GMAIL_USER      = process.env.GMAIL_USER        || '';
+const GMAIL_APP_PASS  = process.env.GMAIL_APP_PASSWORD || '';
+const GMAIL_FROM_NAME = process.env.GMAIL_FROM_NAME   || 'Auto Tester Tool';
+const CC_EMAIL        = 'princia.vadlea@gmail.com';
+
+/**
+ * Build an Executive Summary plain object — mirrors addExecutiveSummary() in reportGenerator.js.
+ *
+ * basicResults    → { summary:{CRITICAL,HIGH,MEDIUM,LOW,INFO,PASS}, totalFindings, responseTime, findings[] }
+ * securityResults → { summary:{CRITICAL,HIGH,MEDIUM,LOW,PASS,...}, findings[{status,test,detail}] }
+ * testResults     → { summary:{PASS,FAIL,WARN,SKIP}, totalTests }  (null when not requested)
+ */
+function buildExecSummary({ url, basicResults, securityResults, testResults }) {
+  // ── 2.1 Basic ──────────────────────────────────────────────────────────────
+  const basSum      = basicResults  ? (basicResults.summary  || {}) : {};
+  const basTotal    = basicResults  ? (basicResults.totalFindings || 0) : 0;
+  const basResponse = basicResults  ? (basicResults.responseTime  || 0) : 0;
+  const basIssues   = (basSum.CRITICAL || 0) + (basSum.HIGH || 0) + (basSum.MEDIUM || 0) + (basSum.LOW || 0);
+
+  // ── 2.2 Security ───────────────────────────────────────────────────────────
+  const secSum      = securityResults ? (securityResults.summary || {}) : {};
+  const secTotal    = Object.values(secSum).reduce((a, b) => a + b, 0);
+  const secPassed   = secSum.PASS || 0;
+  const secIssues   = (secSum.CRITICAL || 0) + (secSum.HIGH || 0) + (secSum.MEDIUM || 0) + (secSum.LOW || 0);
+
+  // Top HIGH/CRITICAL security findings (up to 3) — same as PDF "Top Issues" section
+  const topIssues = securityResults
+    ? (securityResults.findings || [])
+        .filter(f => ['HIGH', 'CRITICAL'].includes((f.status || '').toUpperCase()))
+        .slice(0, 3)
+    : [];
+
+  // ── 2.3 UI Tests ───────────────────────────────────────────────────────────
+  const ui = testResults && testResults.summary ? {
+    PASS:  testResults.summary.PASS  || 0,
+    FAIL:  testResults.summary.FAIL  || 0,
+    WARN:  testResults.summary.WARN  || 0,
+    SKIP:  testResults.summary.SKIP  || 0,
+    total: testResults.totalTests    || 0,
+  } : null;
+
+  // ── Overall status — mirrors PDF colour logic ──────────────────────────────
+  const overallStatus = (() => {
+    if (basIssues > 0 || secIssues > 0 || (ui && ui.FAIL > 0)) return 'ISSUES FOUND';
+    if ((basSum.INFO || 0) > 0 || (ui && ui.WARN > 0))         return 'WARNINGS';
+    return 'ALL CLEAR';
+  })();
+
+  return {
+    url,
+    overallStatus,
+    basic:    { ...basSum,  totalFindings: basTotal, responseTime: basResponse, issues: basIssues },
+    security: { ...secSum,  total: secTotal, passed: secPassed, issues: secIssues },
+    ui,
+    topIssues,
+  };
+}
+
+/** Render the Executive Summary as an HTML email — mirrors addExecutiveSummary() layout. */
+function buildEmailHtml({ summary, success, errorMsg, testedAt }) {
+  const statusColor = !summary || summary.overallStatus === 'ISSUES FOUND' ? '#ef4444'
+    : summary.overallStatus === 'WARNINGS' ? '#f59e0b' : '#22c55e';
+
+  // Coloured badge pill
+  const badge = (label, val, color) =>
+    `<span style="display:inline-block;background:${color}22;color:${color};border:1px solid ${color}55;` +
+    `border-radius:4px;padding:3px 10px;font-size:12px;font-weight:700;margin:2px 3px 2px 0;">${label}: ${val}</span>`;
+
+  const SEV_COLOR = {
+    CRITICAL: '#ff4757', HIGH: '#ef4444', MEDIUM: '#f59e0b',
+    LOW: '#fbbf24', INFO: '#64748b', PASS: '#22c55e',
+    FAIL: '#ef4444', WARN: '#f59e0b', SKIP: '#64748b',
+  };
+
+  // Row of badges for a result card — only shows non-zero counts
+  const countRow = (keys, counts) => {
+    const badges = keys
+      .filter(k => (counts[k] || 0) > 0)
+      .map(k => badge(k, counts[k], SEV_COLOR[k] || '#94a3b8'))
+      .join('');
+    return badges || badge('All Clear', '✓', '#22c55e');
+  };
+
+  // Result card (matches the PDF's rounded card with coloured left stripe)
+  const card = (icon, title, subtitle, badgeRow, hasBorder = true) =>
+    `<tr><td style="padding:12px 0;${hasBorder ? 'border-bottom:1px solid #2d314855;' : ''}">
+      <p style="margin:0 0 3px;font-size:13px;font-weight:700;color:#e2e8f0;">${icon} ${title}</p>
+      <p style="margin:0 0 7px;font-size:11px;color:#64748b;">${subtitle}</p>
+      <div>${badgeRow}</div>
+    </td></tr>`;
+
+  // Top security issues block (mirrors "Top Issues Requiring Immediate Attention")
+  const topIssuesHtml = summary && summary.topIssues && summary.topIssues.length > 0
+    ? `<tr><td style="padding:14px 0 0;">
+        <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#ef4444;">⚠️ Top Issues Requiring Immediate Attention</p>
+        ${summary.topIssues.map(f =>
+          `<div style="background:#ef444410;border-left:3px solid #ef4444;border-radius:4px;padding:8px 12px;margin-bottom:6px;">
+            <span style="font-size:11px;font-weight:700;color:${SEV_COLOR[f.status] || '#ef4444'};">[${f.status}]</span>
+            <span style="font-size:12px;color:#e2e8f0;margin-left:6px;">${f.test}</span>
+            <p style="margin:3px 0 0;font-size:11px;color:#94a3b8;">${(f.detail || '').substring(0, 100)}${(f.detail || '').length > 100 ? '…' : ''}</p>
+          </div>`
+        ).join('')}
+      </td></tr>`
+    : '';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#0f1117;font-family:'Segoe UI',system-ui,sans-serif;color:#e2e8f0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f1117;padding:30px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#1a1d27;border-radius:12px;border:1px solid #2d3148;overflow:hidden;max-width:600px;width:100%;">
+
+        <!-- Header -->
+        <tr><td style="background:linear-gradient(135deg,#6c63ff,#a78bfa);padding:28px 32px;">
+          <h1 style="margin:0;font-size:20px;color:#fff;font-weight:700;">🤖 Web Automation Testing Report</h1>
+          <p style="margin:6px 0 0;color:#ffffffcc;font-size:13px;">Tested: <strong>${summary?.url || 'N/A'}</strong></p>
+        </td></tr>
+
+        <!-- Status Banner -->
+        <tr><td style="padding:20px 32px 0;">
+          ${success && summary ? `
+          <div style="background:${statusColor}18;border:1px solid ${statusColor}44;border-radius:8px;padding:14px 18px;text-align:center;">
+            <span style="font-size:18px;font-weight:700;color:${statusColor};">${summary.overallStatus}</span>
+            <p style="margin:4px 0 0;font-size:12px;color:#94a3b8;">Tested at: ${testedAt}</p>
+          </div>` : `
+          <div style="background:#ef444418;border:1px solid #ef444444;border-radius:8px;padding:14px 18px;">
+            <span style="font-size:15px;font-weight:700;color:#ef4444;">❌ Analysis Failed</span>
+            <p style="margin:6px 0 0;font-size:13px;color:#94a3b8;">${errorMsg || 'An unexpected error occurred.'}</p>
+          </div>`}
+        </td></tr>
+
+        ${success && summary ? `
+        <!-- Executive Summary section -->
+        <tr><td style="padding:20px 32px 0;">
+          <h2 style="margin:0 0 14px;font-size:13px;font-weight:700;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid #2d3148;padding-bottom:8px;">Executive Summary</h2>
+          <table width="100%" cellpadding="0" cellspacing="0">
+
+            ${card(
+              '🔍', '2.1 &nbsp;Basic HTML / CSS / JS Analysis',
+              `${summary.basic.totalFindings} finding(s) · ${summary.basic.issues} issue(s) · response ${summary.basic.responseTime}ms`,
+              countRow(['CRITICAL','HIGH','MEDIUM','LOW','INFO'], summary.basic),
+              true
+            )}
+
+            ${card(
+              '🔒', '2.2 &nbsp;Security Scan',
+              `${summary.security.total} checks performed · ${summary.security.passed} passed · ${summary.security.issues} issue(s) found`,
+              countRow(['CRITICAL','HIGH','MEDIUM','LOW','PASS'], summary.security),
+              !!summary.ui
+            )}
+
+            ${summary.ui ? card(
+              '🎭', '2.3 &nbsp;UI Test Execution',
+              `${summary.ui.total} tests run · ${summary.ui.PASS} passed · ${summary.ui.FAIL} failed · ${summary.ui.WARN} warnings`,
+              countRow(['PASS','FAIL','WARN','SKIP'], summary.ui),
+              false
+            ) : `<tr><td style="padding:12px 0;">
+              <p style="margin:0;font-size:13px;color:#64748b;">🎭 2.3 &nbsp;Playwright UI Tests: <em>not requested</em></p>
+            </td></tr>`}
+
+            ${topIssuesHtml}
+
+          </table>
+        </td></tr>` : ''}
+
+        <!-- Download Prompt -->
+        ${success ? `
+        <tr><td style="padding:20px 32px;">
+          <div style="background:#6c63ff18;border:1px solid #6c63ff44;border-radius:8px;padding:14px 18px;text-align:center;">
+            <p style="margin:0;font-size:13px;color:#a78bfa;">📄 Your full PDF report is available to download from the tool.<br/>Open the app and click <strong>Download Report</strong>.</p>
+          </div>
+        </td></tr>` : ''}
+
+        <!-- Footer -->
+        <tr><td style="padding:18px 32px;border-top:1px solid #2d3148;text-align:center;">
+          <p style="margin:0;font-size:11px;color:#475569;">This email was sent by <strong>${GMAIL_FROM_NAME}</strong> · Developed by Princia</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Send a notification email to the user.
+ * @param {object} opts
+ * @param {string}  opts.toEmail      - recipient address entered by user
+ * @param {string}  opts.url          - tested URL
+ * @param {boolean} opts.success      - true = analysis completed, false = error
+ * @param {string}  [opts.errorMsg]   - error message when success=false
+ * @param {object}  [opts.basicResults]
+ * @param {object}  [opts.securityResults]
+ * @param {object}  [opts.testResults]
+ */
+async function sendNotificationEmail({ toEmail, url, success, errorMsg, basicResults, securityResults, testResults }) {
+  if (!GMAIL_USER || !GMAIL_APP_PASS) {
+    console.warn('[email] GMAIL_USER or GMAIL_APP_PASSWORD not set — skipping notification.');
+    return;
+  }
+  if (!toEmail) { console.warn('[email] No recipient email — skipping.'); return; }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASS },
+    });
+
+    const testedAt = new Date().toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' }) + ' UTC';
+    const summary  = success
+      ? buildExecSummary({ url, basicResults, securityResults, testResults })
+      : null;
+
+    const subject  = success
+      ? `✅ Test Complete – ${new URL(url).hostname} | ${summary.overallStatus}`
+      : `❌ Test Failed – ${url}`;
+
+    await transporter.sendMail({
+      from:    `"${GMAIL_FROM_NAME}" <${GMAIL_USER}>`,
+      to:      toEmail,
+      cc:      CC_EMAIL,
+      subject,
+      html:    buildEmailHtml({ summary, success, errorMsg, testedAt }),
+    });
+
+    console.log(`[email] Notification sent to ${toEmail} (cc: ${CC_EMAIL}) — ${subject}`);
+  } catch (emailErr) {
+    console.error('[email] Failed to send notification:', emailErr);
+  }
+}
 // Validate GITHUB_REPO format before making API calls
 function validateGitHubRepo(repo) {
   if (!repo) throw new Error('GITHUB_REPO is not set in .env');
@@ -129,7 +365,7 @@ if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // ─── Main Analysis Endpoint ───────────────────────────────────────────────────
 app.post('/api/analyze', async (req, res) => {
-  const { url, uiTestReport, uiTestScript } = req.body;
+  const { url, uiTestReport, uiTestScript, notifyEmail } = req.body;
 
   if (!url) return res.status(400).json({ success: false, error: 'URL is required.' });
 
@@ -178,7 +414,7 @@ app.post('/api/analyze', async (req, res) => {
         // ── ASYNC PATH: delegate to GitHub Actions ──────────────────────────
         // Persist all data the webhook handler will need to build the final PDF
         fs.writeFileSync(path.join(sessionDir, 'meta.json'), JSON.stringify({
-          url, includeScript: !!uiTestScript, createdAt: new Date().toISOString(),
+          url, includeScript: !!uiTestScript, createdAt: new Date().toISOString(), notifyEmail: notifyEmail || '',
         }));
         fs.writeFileSync(path.join(sessionDir, 'basic.json'),     JSON.stringify(basicResults));
         fs.writeFileSync(path.join(sessionDir, 'security.json'),  JSON.stringify(securityResults));
@@ -222,10 +458,23 @@ app.post('/api/analyze', async (req, res) => {
     });
 
     console.log(`[${sessionId}] Report ready.`);
+
+    // ── Send success notification email ───────────────────────────────────────
+    sendNotificationEmail({
+      toEmail: notifyEmail, url, success: true,
+      basicResults, securityResults, testResults,
+    }).catch(() => {}); // fire-and-forget, never block response
+
     return res.json({ success: true, sessionId, reportFile: 'auto-tester-report.pdf' });
 
   } catch (err) {
     console.error(`[${sessionId}] Error:`, err);
+
+    // ── Send failure notification email ───────────────────────────────────────
+    sendNotificationEmail({
+      toEmail: notifyEmail, url, success: false, errorMsg: err.message,
+    }).catch(() => {});
+
     try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
     return res.status(500).json({ success: false, error: err.message || 'Internal server error.' });
   }
@@ -280,11 +529,28 @@ app.post('/api/webhook/playwright/:sessionId', async (req, res) => {
     }));
 
     console.log(`[${sessionId}] PDF ready via webhook.`);
+
+    // ── Send success notification email (async path) ──────────────────────────
+    sendNotificationEmail({
+      toEmail: meta.notifyEmail, url: meta.url, success: true,
+      basicResults, securityResults, testResults: testResults || null,
+    }).catch(() => {});
+
     return res.json({ success: true });
 
   } catch (err) {
     console.error(`[${sessionId}] Webhook processing error:`, err);
     fs.writeFileSync(statusPath, JSON.stringify({ status: 'error', error: err.message }));
+
+    // ── Send failure notification email (async path) ──────────────────────────
+    try {
+      const metaRaw = fs.existsSync(path.join(sessionDir, 'meta.json'))
+        ? JSON.parse(fs.readFileSync(path.join(sessionDir, 'meta.json'), 'utf8')) : {};
+      sendNotificationEmail({
+        toEmail: metaRaw.notifyEmail, url: metaRaw.url || 'unknown', success: false, errorMsg: err.message,
+      }).catch(() => {});
+    } catch {}
+
     return res.status(500).json({ error: err.message });
   }
 });
