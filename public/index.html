@@ -106,6 +106,30 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-glow);
     }
+    #emailInput {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px 12px 40px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    #emailInput::placeholder { color: var(--muted); }
+    #emailInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    #emailInput:invalid:not(:placeholder-shown) {
+      border-color: var(--danger);
+    }
+    .email-note {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 5px;
+    }
 
     /* ── Divider ────────────────────────────────────────── */
     .divider {
@@ -347,6 +371,16 @@
       <input type="url" id="urlInput" placeholder="https://example.com" autocomplete="off" />
     </div>
 
+    <!-- Email Input -->
+    <label class="field-label" for="emailInput" style="margin-top:18px;display:block;">Notification Email <span style="color:var(--danger);">*</span></label>
+    <div class="url-wrap">
+      <svg class="url-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+      </svg>
+      <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email" required />
+    </div>
+    <p class="email-note">📧 A report summary will be emailed here when testing completes (success or failure).</p>
+
     <hr class="divider" />
 
     <!-- Always-on badge -->
@@ -533,15 +567,26 @@
 
     // ── Main execution ─────────────────────────────────────
     async function runAnalysis() {
-      const urlInput = document.getElementById('urlInput');
+      const urlInput   = document.getElementById('urlInput');
+      const emailInput = document.getElementById('emailInput');
       const uiTestReport = document.getElementById('uiTestReport').checked;
       const uiTestScript = document.getElementById('uiTestScript').checked;
-      const url = urlInput.value.trim();
+      const url        = urlInput.value.trim();
+      const notifyEmail = emailInput.value.trim();
 
       if (!url) {
         urlInput.focus();
         urlInput.style.borderColor = '#ef4444';
         setTimeout(() => urlInput.style.borderColor = '', 1500);
+        return;
+      }
+
+      // Validate email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!notifyEmail || !emailRegex.test(notifyEmail)) {
+        emailInput.focus();
+        emailInput.style.borderColor = '#ef4444';
+        setTimeout(() => emailInput.style.borderColor = '', 1500);
         return;
       }
 
@@ -580,7 +625,7 @@
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, uiTestReport, uiTestScript }),
+          body: JSON.stringify({ url, uiTestReport, uiTestScript, notifyEmail }),
         });
 
         clearInterval(stepTimer);
@@ -732,9 +777,11 @@
     document.head.appendChild(style);
 
     // Allow Enter key to trigger execution
-    document.getElementById('urlInput').addEventListener('keydown', e => {
-      const btn = document.getElementById('executeBtn');
-      if (e.key === 'Enter' && !btn.disabled) runAnalysis();
+    ['urlInput', 'emailInput'].forEach(id => {
+      document.getElementById(id).addEventListener('keydown', e => {
+        const btn = document.getElementById('executeBtn');
+        if (e.key === 'Enter' && !btn.disabled) runAnalysis();
+      });
     });
   </script>
 </body>
